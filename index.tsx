@@ -2,6 +2,20 @@ import React, { useState, useMemo, useEffect, useCallback, useRef, useContext, c
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { Search, AlertCircle, TrendingUp, Package, Truck, Calendar, Filter, Download, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Clock, DollarSign, Upload, FileText, RefreshCw, Save, BarChart, Users, ArrowUpDown, XCircle, Trash2, Loader, Copy, Wand2, Eye, Warehouse, LayoutGrid, ChevronRight, Files } from 'lucide-react';
+import { PURCHASING_LOGIC_CONSTANTS, UI_CONSTANTS, VENDOR_LEAD_TIMES } from './lib/constants';
+import { GEMINI_PROMPTS } from './lib/prompts';
+import { VENDOR_DETAILS } from './data/vendorDetails';
+import {
+    FileInfo,
+    LotData,
+    ItemData,
+    UsageData,
+    POData,
+    SalesData,
+    VendorData,
+    MergedInventoryItem,
+    ReorderInfo,
+} from './lib/types';
 
 // --- Error Boundary ---
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -34,216 +48,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     return this.props.children;
   }
 }
-
-// --- Data Interfaces ---
-interface FileInfo {
-    name: string;
-    count: number;
-}
-interface LotData {
-    item: string;
-    description: string;
-    warehouse: string;
-    location?: string;
-    onHand: number;
-    committed: number;
-    available: number;
-    vendor?: string;
-}
-interface ItemData {
-    item: string;
-    description?: string;
-    unitCost?: number;
-    primaryVendor?: string;
-    category?: string;
-    rpl?: string;
-    vendorCode?: string;
-}
-interface UsageData {
-    item: string;
-    warehouse: string;
-    monthlyAvg?: number;
-    min?: number;
-    max?: number;
-}
-interface POData {
-    po: string;
-    vendorName?: string;
-    warehouse?: string;
-    ordDate?: string;
-    shipDate?: string;
-    status?: string;
-    openTotal?: number;
-    item?: string;
-    openQty?: number;
-}
-interface SalesData {
-    orderDate?: string;
-    wantedDate?: string;
-    warehouse?: string;
-    order?: string;
-    customerName?: string;
-    item?: string;
-    description?: string;
-    qty?: number;
-}
-interface VendorData {
-    vendorCode: string;
-    vendorName: string;
-}
-interface MergedInventoryItem {
-    id: string;
-    item: string;
-    warehouse: string;
-    onHand: number;
-    committed: number;
-    available: number;
-    locations: string[];
-    description?: string;
-    vendor?: string;
-    unitCost: number;
-    inventoryValue: number;
-    monthlyAvg: number;
-    min: number;
-    max: number;
-    leadTime: number;
-    rpl: string;
-    category?: string;
-    vendorCode?: string;
-}
-interface ReorderInfo {
-    suggested: number;
-    daysOfSupply: number;
-    needsReorder: boolean;
-    reorderPoint: number;
-    targetStock: number;
-}
-interface VendorContact {
-    role: string;
-    name: string | null;
-    email: string | null;
-    phone: string | null;
-}
-interface VendorDetail {
-    name: string;
-    contacts: VendorContact[];
-    notes: string[];
-    freightInfo: string;
-}
-
-// --- App Constants ---
-const PURCHASING_LOGIC_CONSTANTS = {
-    DAYS_IN_MONTH: 30,
-    SAFETY_STOCK_DAYS: 14, // How many days of supply to keep as safety
-    TARGET_STOCK_MULTIPLIER: 1.5, // Target stock is X times reorder point
-    OVERSTOCK_MONTHS_THRESHOLD: 6, // Items with more than this many months of supply are "overstock"
-    LEAD_TIME_WARNING_DAYS: 21, // Warn if lead time exceeds this. Set higher than default.
-    LONG_LEAD_TIME_SAFETY_FACTOR: 0.5, // Add 50% of lead time as additional safety days for long lead times
-};
-
-const UI_CONSTANTS = {
-    ITEM_VIEW_ITEMS_PER_PAGE: 25,
-    ORDER_VIEW_ITEMS_PER_PAGE: 15,
-    SALES_VIEW_ITEMS_PER_PAGE: 15,
-    VENDOR_DETAIL_TOP_N_ITEMS: 5,
-};
-
-const GEMINI_PROMPTS = {
-    inventoryAnalysis: (inventory: MergedInventoryItem[], calculateReorderQty: (item: MergedInventoryItem) => ReorderInfo) => {
-        const topValueItems = [...inventory].sort((a, b) => b.inventoryValue - a.inventoryValue).slice(0, 5);
-        const lowSupplyItems = inventory.filter(i => calculateReorderQty(i).daysOfSupply < 15);
-        const totalValue = inventory.reduce((sum, i) => sum + i.inventoryValue, 0);
-        return `You are an expert inventory analyst for FSI. Analyze the following summary and provide a brief, actionable, bulleted analysis (3-4 points max). Highlight risks (low stock) or opportunities (overstock).\n\n- Total Items: ${new Set(inventory.map(i => i.item)).size}\n- Total Value: $${totalValue.toLocaleString()}\n- Top 5 Items by Value: ${topValueItems.map(i => `${i.item} ($${i.inventoryValue.toLocaleString()})`).join(', ')}\n- Critical Low Stock (<15 days): ${lowSupplyItems.length > 0 ? lowSupplyItems.map(i => i.item).join(', ') : 'None'}`;
-    },
-    reorderEmail: (vendor: string, items: MergedInventoryItem[], editedQuantities: { [key: string]: number }, calculateReorderQty: (item: MergedInventoryItem) => ReorderInfo) => {
-        const itemsList = items.map(item => `- ${item.item} (${item.description}): Qty ${editedQuantities[item.id] ?? calculateReorderQty(item).suggested}`).join('\n');
-        return `Act as a purchasing associate named Andrew Derrick from FSI. Write a professional, concise email to a vendor named ${vendor}. Ask for a formal quote and estimated lead time for the following list of items. Keep it friendly and to the point.\n\nItems:\n${itemsList}`;
-    },
-    generateDescription: (newPartNumber: string, partSegments: string[], basePartInfo?: MergedInventoryItem) => {
-        const oldDesc = basePartInfo?.description || 'a standard hardware component';
-        const newAttrsText = partSegments.map((seg, i) => `Segment ${i + 1}: ${seg}`).join(', ');
-        return `You are an ERP data specialist for FSI. Your task is to create a new product description based on a template.
- The template description for a similar part is: "${oldDesc}"
- The new part has these attributes: ${newAttrsText}
- The new part number is: ${newPartNumber}
- 
- Generate a new description that matches the style and format of the template, but incorporates the new attributes. Be concise and accurate, suitable for an ERP system. If the template description is generic, create a plausible description based on the new part number segments.`;
-    },
-    similarityCheck: (newPartNumber: string, partSegments: string[], inventory: MergedInventoryItem[]) => {
-        const inventoryListPrompt = (() => {
-            let list = '';
-            for (const i of inventory) {
-                const newItem = `"${i.item}": "${i.description}"\n`;
-                if (list.length + newItem.length > 15000) break;
-                list += newItem;
-            }
-            return list;
-        })();
-        return `You are an ERP data specialist for FSI. Your task is to find similar parts to prevent creating duplicates.
- A new part is being proposed:
- - New Part #: "${newPartNumber}"
- - New Attributes: Segments are [${partSegments.join(', ')}]
- 
- Search the following inventory list and identify up to 3 existing parts that are the closest match. For each match, provide the part number and a brief explanation of why it's similar. Format the output as a simple list. If no good matches are found, say so.
- 
- Inventory List (first 15000 chars):
- ${inventoryListPrompt}
- `;
-    }
-};
-
-const VENDOR_LEAD_TIMES: { [key: string]: number } = {
-    'STASTA': 21, // STAR STAINLESS
-    'ELCIND': 35, // ELCO
-    'FORFAS': 21, // FORD
-    'EDSMAN': 10, // EDSON
-    'DEFAULT': 14,
-};
-
-// BEST PRACTICE: For scalability, this large object should be externalized into a separate JSON file or served from an API endpoint.
-const VENDOR_DETAILS: { [key: string]: VendorDetail } = {
-    SIMSTR: { name: "SIMPSON STRONG-TIE CO INC", contacts: [ { role: "Main Rep", name: "Shane Smith", email: "shsmith@strongtie.com", phone: "205-913-6421" }, { role: "Customer Service", name: "Random person", email: null, phone: "(800) 999-5099" }, { role: "Large Order Email", name: null, email: "lpp24@strongtie.com", phone: null }, { role: "Sales", name: null, email: "salesdesk24@strongtie.com", phone: null } ], notes: [ "Shane is a great contact and loves to do deals when asked.", "Simpson is very quick all together up there with Star Stainless speeds if not better." ], freightInfo: "**($1,325)**" },
-    ELCIND: { name: "BLACK & DECKER INC.", contacts: [ { role: "Main Rep", name: "Duane Baumler", email: "duane.baumler@sbdinc.com", phone: "319-429-3104" }, { role: "Customer Service Rep", name: "Mike", email: "icwestsouth@sbdinc.com", phone: "(860) 302-5304" }, { role: "Customer Service Powers", name: "Random person foreign", email: "ORDERS@POWERS.COM", phone: "800-524-3244" }, { role: "Customer Service SBD", name: "Random person foreign", email: "SBDORDERS@SBDINC.COM", phone: "800-524-3244" } ], notes: [ "If I need something from Mike within 30 min put HOT! in subject line. Need something at some point just send the email normal. Need something right away call.", "Duane is the main rep in charge of our account. He can help with pricing adjustments.", "Website used to check pricing and availability. Availability is not always 100% so you may need to call a rep." ], freightInfo: "**($1,500)**" },
-    FRAINT: { name: "FRANKLIN INTERNATIONAL", contacts: [ { role: "Main Rep", name: "Rick Nicholas", email: "ricknicholasjr@franklininternational.com", phone: "610-960-4352" }, { role: "Sales Rep", name: "Tracy Hewlett", email: "tracyhewlett@franklininternational.com", phone: "800-877-4583" }, { role: "Customer Service Rep", name: "Tim Pugno", email: "TimPugno@FranklinInternational.com", phone: "614-445-1299" }, { role: "Customer Service", name: "Random person", email: "concustserv@franklininternational.com", phone: "800-877-4583" } ], notes: [ "Rick is the go to for any price changes or deals. He is also the lead rep in meetings.", "Tracy seems decent at solving most problems and is our main sales rep.", "Tim is a random rep that ended up being able to get me a OA right away and seems very helpful every call.", "Seems to be 2-3 days till they ship anything." ], freightInfo: "**(900 tubes or 75 cases)**" },
-    TREMCO: { name: "TREMCO CPG INC", contacts: [ { role: "Sales Rep", name: "Diane Drobny", email: "ddrobny@tremcoinc.com", phone: "(216) 766-5551" }, { role: "Market Manager", name: "Jeff Parmelee", email: "jparmelee@tremcoinc.com", phone: "(330) 212-5551" }, { role: "Technical Sales Rep", name: "Tom Close", email: "TClose@tremcoinc.com", phone: "267.922.3597" } ], notes: [ "You must call Diane if you need a quick answer otherwise you may wait all day for a response.", "Tremco is phasing out the 626 and Vulkem will take its place 8-27-24." ], freightInfo: "**(N/A)**" },
-    ITMINT: { name: "ITM-INTERNATIONAL TOOL MFG.", contacts: [ { role: "Sales", name: null, email: "SALES@ITMTOOLS.COM", phone: null }, { role: "Sales Rep", name: "Marilyn Rodriguez", email: null, phone: "(516) 738-0388" }, { role: "Sales Rep", name: "Chun Keat", email: "ckeat@itmtools.com", phone: "(516) 738-0388" }, { role: "Sales Rep", name: "Annette Kempadoo", email: "annette@itmtools.com", phone: "(516) 738-0388" } ], notes: ["All reps that we deal with are very quick and helpful when assistance is needed."], freightInfo: "**($750)**" },
-    CONFAS: { name: "SFS INTEC, INC.", contacts: [ { role: "General Orders", name: null, email: "order-wyo@sfs.com", phone: null }, { role: "Sales Rep", name: "Sarah Etzel", email: "sarah.etzel@sfs.com", phone: "(563) 259-5214" }, { role: "Regional Rep", name: "Ted Mack", email: "ted.maack@sfs.com", phone: "(610) 451-8780" }, { role: "District Rep", name: "Greg Stephson", email: "greg.stephenson@sfs.com", phone: "(610) 816-9763" } ], notes: [ "Term bar is only in PA location in Reading.", "Sarah is one of the best reps I deal with on my day to day. Most of the time it is a few minutes to get an answer on something.", "Helps to have SFS part numbers in emails/PO's" ], freightInfo: "**($3,500)**" },
-    AMESEA: { name: "AMERICAN SEALANTS INC.", contacts: [ { role: "Market Manager", name: "Brian Harruff", email: "bharruff@meridianadhesives.com", phone: "260.438.0318" }, { role: "Sales Rep", name: "Jennifer Ober", email: "jober@meridianadhesives.com", phone: "260-399-5051" }, { role: "Sales Rep", name: "Debbie Herschberger", email: "dherschberger@meridianadhesives.com", phone: "260-489-0728" } ], notes: [ "Very close with this companies management and are in the process of creating a private labeled product.", "Brian is a great contact and will do his best to get you anything you need.", "Get killed on the freight with these guys would love to get something in place." ], freightInfo: "**(N/A)**" },
-    STASTA: { name: "STAR STAINLESS SCREW CO.", contacts: [ { role: "Sales Rep", name: "Jason Vanderhee", email: "jason.v@starstainless.com", phone: "(800) 631-3540" }, { role: "Sales Rep", name: "Barbara Bogerman", email: "bbogerman@starstainless.com", phone: null }, { role: "Sales Rep", name: "Kate Tolerico", email: "Ktolerico@starstainless.com", phone: null } ], notes: [ "Most things 18-8 will be ordered from here.", "Jason is very very quick at getting back to emails", "Barbara is a good back up when Jason is out she is just a lot slower." ], freightInfo: "**(5000 lbs)**" },
-    PORFAS: { name: "BRIGHTON-BEST INTERNATIONAL, INC.", contacts: [ { role: "Regional Sales", name: "Michael White", email: "mwhite@brightonbest.com", phone: "732-484-2270" }, { role: "Regional Sales", name: "Gary Wilson", email: "gwilson@brightonbest.com", phone: null }, { role: "Sales Rep", name: "Deborah Pearson", email: "DPEARSON@BRIGHTONBEST.COM", phone: "800-935-2378" } ], notes: [ "Deborah is very good at finding anything that you need. Can also help with most pricing issues and freight.", "Michael is the head rep for our account here and you will need to contact him for anything really important." ], freightInfo: "**(Fasteners only: $1,600, Rods only: $2,400, Fasteners and Rod: $3,000, National PPD: $2,400)**" },
-    NOVFAS: { name: "NOVA FASTENERS CO.", contacts: [ { role: "Sales Rep", name: "Jeff", email: "JEFFM75737@AOL.COM", phone: "(800) 874-7407" } ], notes: ["Jeff has always been really helpful even if that is him responding from his cell phone has well. Seems available 9 times out of 10."], freightInfo: "**($2,000)**" },
-    SPI: { name: "SPI LLC", contacts: [ { role: "Sales Rep", name: "Kelly Rhoads", email: "krhoads@spi-co.com", phone: "856-541-5806" }, { role: "Sales Rep", name: "Xavier Runcie", email: "xruncie@spi-co.com", phone: "856-541-5806" }, { role: "Sales Rep", name: "Greg Viola", email: "gviola@spi-co.com", phone: "856-796-0742" } ], notes: ["SPI tends to keep good stock on many of the standard items that we buy from K-Flex good backup.", "Can deliver in SPI truck"], freightInfo: "**($750)**" },
-    TEXTRU: { name: "TEX-TRUDE, LP", contacts: [ { role: "Sales Manager", name: "Linda Callas", email: "lcallas@tex-trude.com", phone: "713-481-3410" }, { role: "Shipping", name: "Amy Pendergrass", email: "apendergrass@tex-trude.com", phone: "713-481-3411" } ], notes: [ "Small shipments need to go Fed-EX they will not ship UPS.", "May be best to call Linda when in need of anything.", "Truckloads—35 cartons (not $35K)" ], freightInfo: "**(Prefer truckloads, no freight paid.)**" },
-    PRISOU: { name: "PRIME SOURCE", contacts: [ { role: "Main Rep", name: "Tom Flemming", email: "flemingt@primesourcebp.com", phone: "(800) 488-5517" }, { role: "Inside Rep", name: "Alyssa Green", email: "greenal@primesourcebp.com", phone: "800-676-7777 EXT: 52010" } ], notes: [ "We as FSI does not do a ton of business with prime source. Typically either certain nails and drywall screws. Possibly 3M products but will need to two step.", "Both Tom and Alyssa are both very helpful at trying to get you there best answer.", "Also apart of net plus *." ], freightInfo: "**($750)**" },
-    HAWFAS: { name: "HAWK FASTENER SERVICES, L.L.C.", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    EDSMAN: { name: "EDSON MANUFACTURING INC", contacts: [], notes: [], freightInfo: "**($2,000)**" },
-    PECCOR: { name: "PECORA CORPORATION", contacts: [], notes: [], freightInfo: "**($12,500)**" },
-    CONPRO: { name: "DAP PRODUCTS INC.", contacts: [], notes: [], freightInfo: "**($5,000)**" },
-    STAEXT: { name: "STAR EXTRUDED SHAPES, INC.", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    FOMPRO: { name: "ICP ADHESIVES & SEALANTS INC", contacts: [], notes: [], freightInfo: "**(1 Pallet)**" },
-    LELAND: { name: "LELAND INDUSTRIES, INC.", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    KANCOR: { name: "KANEBRIDGE CORP.", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    FORFAS: { name: "FORD FASTENERS, INC.", contacts: [], notes: [], freightInfo: "**($2,000)**" },
-    MILTOO: { name: "MILWAUKEE ELECTRIC TOOL CORP", contacts: [], notes: [], freightInfo: "**($750)**" },
-    TANTEC: { name: "TANGENT TECHNOLOGIES, LLC", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    IOWPLA: { name: "PLASTIC RECYCLING OF IOWA FALLS INC", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    CARCCW: { name: "CARLISLE CCW", contacts: [], notes: ["$35,000 truck load pricing"], freightInfo: "**(N/A)**" },
-    EPSPLA: { name: "ENGINEERED PLASTICS SYSTEMS", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    CLEFOR: { name: "CLEVELAND CITY FORGE", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    STRSER: { name: "NEFCO CORPORATION", contacts: [], notes: ["Can deliver in NEFCO truck"], freightInfo: "**(N/A)**" },
-    MFMBUI: { name: "MFM BUILDING PRODUCTS CORP.", contacts: [], notes: ["Prefer stock orders of 35K"], freightInfo: "**(1 pallet)**" },
-    JLFOAM: { name: "J & K FOAM FABRICATING, INC.", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    INTUSA: { name: "INTERCORP USA", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    EJOFAS: { name: "EJOT FASTENING SYSTEMS LP", contacts: [], notes: [], freightInfo: "**($2,500)**" },
-    GALIND: { name: "TRU-CUT", contacts: [], notes: [], freightInfo: "**($1,500)**" },
-    PANAME: { name: "PAN AMERICAN SCREW LLC - 30", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    TENRYU: { name: "TENRYU", contacts: [], notes: [], freightInfo: "**($750)**" },
-    MANPRO: { name: "MANUS PRODUCTS", contacts: [], notes: [], freightInfo: "**(N/A)**" },
-    EMPIND: { name: "EMPIRE INDUSTRIES", contacts: [], notes: [], freightInfo: "**($2,000)**" },
-    SPETEC: { name: "SPECIFIED TECHNOLOGIES, INC.", contacts: [], notes: [], freightInfo: "**($5,000)**" },
-    KFLEX: { name: "K-FLEX USA", contacts: [], notes: [], freightInfo: "**(30 cartons)**" },
-    STEFAS: { name: "STELFAST INC.", contacts: [], notes: [], freightInfo: "**($1,500)**" }
-};
 
 // --- Data Sanitization & Mapping ---
 const lotMapping = { item: ['Item', 'item'], description: ['Description', 'description'], warehouse: ['WH', 'wh', 'Warehouse'], location: ['Location', 'location'], onHand: ['On Hand', 'onHand'], committed: ['Committed', 'committed'], available: ['Available', 'available'], vendor: ['Vendor', 'vendor'], };
