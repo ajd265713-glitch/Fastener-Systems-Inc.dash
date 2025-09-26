@@ -1,0 +1,8 @@
+const lotMapping = { item: ['Item', 'item'], description: ['Description', 'description'], warehouse: ['WH', 'wh', 'Warehouse'], location: ['Location', 'location'], onHand: ['On Hand', 'onHand'], committed: ['Committed', 'committed'], available: ['Available', 'available'], vendor: ['Vendor', 'vendor'], };
+const itemsMapping = { item: ['Item', 'item'], description: ['Description', 'description'], unitCost: ['Unit Loaded Cost', 'Avg Cost', 'unitCost'], primaryVendor: ['Primary Vendor', 'primaryVendor'], category: ['Categories', 'Item Category', 'category'], rpl: ['RPL', 'rpl'], vendorCode: ['Vendor Code', 'vendorCode'] };
+const usageMapping = { item: ['Item', 'item'], warehouse: ['WH', 'wh', 'Warehouse'], monthlyAvg: ['MO Avg', 'monthlyAvg'], min: ['Min', 'min'], max: ['Max', 'max'], };
+const poMapping = { po: ['PO', 'po'], vendorName: ['Vendor Name', 'vendorName'], warehouse: ['WH', 'wh', 'Warehouse'], ordDate: ['Ord Date', 'ordDate'], shipDate: ['Ship Date', 'shipDate'], status: ['Status', 'status'], openTotal: ['Open Total', 'openTotal'], item: ['Item', 'item'], openQty: ['Open', 'open'], };
+const salesMapping = { orderDate: ['Order Date'], wantedDate: ['Wanted Date'], warehouse: ['WH'], order: ['Order'], customerName: ['Customer Name'], item: ['Item'], description: ['Description'], qty: ['Qty'], };
+const vendorsMapping = { vendorCode: ['Vendor Code', 'Vendor'], vendorName: ['Vendor Name', 'Name'], };
+
+export const allMappings: { [key: string]: any } = { lot: lotMapping, items: itemsMapping, usage: usageMapping, po: poMapping, sales: salesMapping, vendors: vendorsMapping };
