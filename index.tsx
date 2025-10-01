@@ -6,12 +6,11 @@ import { FSIDashboard } from './src/components/FSIDashboard';
 
 // --- Error Boundary ---
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
+  // Fix: Initialize state as a class property to ensure it's correctly typed on the component instance.
+  // This resolves the errors about 'state' and 'props' not existing on the type.
+  state = { hasError: false };
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(_error: Error) {
     return { hasError: true };
   }
 

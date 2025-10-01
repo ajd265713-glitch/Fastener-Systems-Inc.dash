@@ -44,7 +44,8 @@ export const SalesOrdersTab = ({ salesData, searchTerm }: { salesData: SalesData
                                 <th key={col.key} className={`table-header ${col.classes}`} aria-sort={col.sortable ? (sortConfig?.key === col.key ? sortConfig.direction : 'none') : undefined}>
                                     <div className={`flex items-center gap-1 ${col.classes?.includes('text-right') ? 'justify-end' : ''}`}>
                                         {col.label}
-                                        {col.sortable && <button onClick={() => requestSort(col.key as keyof SalesData)} aria-label={`Sort by ${col.label} ${sortConfig?.key === col.key && sortConfig.direction === 'ascending' ? 'descending' : 'ascending'}`}><ArrowUpDown size={14} className="text-gray-400" /></button>}
+                                        {/* Fix: Removed unnecessary type assertion `as keyof SalesData` now that `requestSort` accepts a string. */}
+                                        {col.sortable && <button onClick={() => requestSort(col.key)} aria-label={`Sort by ${col.label} ${sortConfig?.key === col.key && sortConfig.direction === 'ascending' ? 'descending' : 'ascending'}`}><ArrowUpDown size={14} className="text-gray-400" /></button>}
                                     </div>
                                 </th>
                             ))}

@@ -23,12 +23,14 @@ export const useSortableData = <T extends Record<string, any>>(items: T[], confi
         return sortableItems;
     }, [items, sortConfig]);
 
-    const requestSort = (key: keyof T) => {
+    // Fix: Changed `key` type from `keyof T` to `string` to avoid overly narrow type inference issues at the call site.
+    // The key is then cast back to `keyof T` when setting state.
+    const requestSort = (key: string) => {
         let direction: 'ascending' | 'descending' = 'ascending';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
             direction = 'descending';
         }
-        setSortConfig({ key, direction });
+        setSortConfig({ key: key as keyof T, direction });
     };
 
     return { items: sortedItems, requestSort, sortConfig };

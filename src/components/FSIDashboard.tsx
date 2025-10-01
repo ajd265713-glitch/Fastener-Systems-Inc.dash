@@ -24,7 +24,7 @@ export const FSIDashboard = () => {
     const [initialRedirectDone, setInitialRedirectDone] = useState(false);
     
     const { showNotification } = useNotification();
-    const { allData, mergedInventory, filesLoaded, lastUpdated, isProcessing, processingMessage, papaLoaded, saveData, clearData, handleFileUpload, handleMassUpload } = useDataProcessor();
+    const { allData, mergedInventory, filesLoaded, lastUpdated, isProcessing, processingMessage, papaLoaded, saveData, clearData, handleFileUpload, handleMassUpload, massUploadSummary, clearMassUploadSummary } = useDataProcessor();
     const { lotData, usageData, poData, salesData, vendorsData } = allData;
 
     const handleGeminiCall = async (prompt: string): Promise<string> => {
@@ -79,7 +79,7 @@ export const FSIDashboard = () => {
 
     const renderTabContent = () => {
         switch (activeTab) {
-            case 'upload': return <UploadTab handleFileUpload={handleFileUpload} filesLoaded={filesLoaded} papaLoaded={papaLoaded} handleMassUpload={handleMassUpload} />;
+            case 'upload': return <UploadTab handleFileUpload={handleFileUpload} filesLoaded={filesLoaded} papaLoaded={papaLoaded} handleMassUpload={handleMassUpload} massUploadSummary={massUploadSummary} clearMassUploadSummary={clearMassUploadSummary} />;
             case 'inventory': return <InventoryTab inventory={searchedInventory} calculateReorderQty={calculateReorderQty} callGeminiAPI={handleGeminiCall} />;
             case 'reorder': return <ReorderWorksheet inventory={filteredInventory} searchTerm={searchTerm} calculateReorderQty={calculateReorderQty} callGeminiAPI={handleGeminiCall} copyToClipboard={copyToClipboard}/>;
             case 'orders': return <OrdersTab orders={poData} searchTerm={searchTerm} />;
